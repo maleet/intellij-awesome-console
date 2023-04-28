@@ -15,6 +15,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.PathUtil;
+import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -24,17 +25,19 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import com.intellij.openapi.diagnostic.Logger;
 
 public class AwesomeLinkFilter implements Filter {
 	private static final Logger logger = Logger.getInstance(AwesomeLinkFilter.class);
 
 	public static final Pattern FILE_PATTERN = Pattern.compile(
-			"(?<link>(?<path>\"?([.~])?(([a-zA-Z]:)?[\\\\/])?\\w[@\\w/\\-.\\\\]*\\.[\\w\\-.]+)\\$?" +
-			"(?:(?::|\"?, line |:\\[|\\()(?<row>\\d+)(?:[:,]( column )?(?<col>\\d+)([)\\]])?)?)?)",
+			"(?<link>(?<path>\"?([.~])?(([a-zA-Z]:)?[\\\\/])?\\w[@\\w/\\-.\\\\]*\\.[\\w\\-.]+)(\\s+)\\$?(?:(?::|\"?, line |:\\[|\\()(?<row>\\d+)(?:[:,]( column )?(?<col>\\d+)([)\\]])?)?)?)",
 			Pattern.UNICODE_CHARACTER_CLASS);
 	public static final Pattern URL_PATTERN = Pattern.compile(
 			"(?<link>[(']?(?<protocol>(([a-zA-Z]+):)?([/\\\\~]))(?<path>[-.!~*\\\\'()\\w;/?:@&=+$,%#]+))",
 			Pattern.UNICODE_CHARACTER_CLASS);
+
+	public static final Dictionary<Pattern, String> REPLACE_PATTERN = null;
 	private static final int maxSearchDepth = 1;
 
 	private final AwesomeConsoleConfig config;
@@ -44,6 +47,7 @@ public class AwesomeLinkFilter implements Filter {
 	private final List<String> srcRoots;
 	private final ThreadLocal<Matcher> fileMatcher = ThreadLocal.withInitial(() -> FILE_PATTERN.matcher(""));
 	private final ThreadLocal<Matcher> urlMatcher = ThreadLocal.withInitial(() -> URL_PATTERN.matcher(""));
+
 	private final ProjectRootManager projectRootManager;
 
 	public AwesomeLinkFilter(final Project project) {
@@ -99,9 +103,12 @@ public class AwesomeLinkFilter implements Filter {
 	public List<ResultItem> getResultItemsUrl(final String line, final int startPoint) {
 		final List<ResultItem> results = new ArrayList<>();
 		final List<URLLinkMatch> matches = detectURLs(line);
+		logger.warn(line);
 
 		for (final URLLinkMatch match : matches) {
+			logger.warn(match.match);
 			final String file = getFileFromUrl(match.match);
+			logger.warn(file);
 
 			if (null != file && !new File(file).exists()) {
 				continue;
@@ -256,8 +263,10 @@ public class AwesomeLinkFilter implements Filter {
 	}
 
 	@NotNull
-	public List<FileLinkMatch> detectPaths(@NotNull final String line) {
+	public List<FileLinkMatch> detectPaths(@NotNull String line) {
 		final Matcher fileMatcher = this.fileMatcher.get();
+		line = line.replace(".cs:line ", ".cs     :");
+
 		fileMatcher.reset(line);
 		final List<FileLinkMatch> results = new LinkedList<>();
 		while (fileMatcher.find()) {
@@ -269,6 +278,9 @@ public class AwesomeLinkFilter implements Filter {
 			}
 			final int row = IntegerUtil.parseInt(fileMatcher.group("row")).orElse(0);
 			final int col = IntegerUtil.parseInt(fileMatcher.group("col")).orElse(0);
+
+            //logger.error("Line: " + line + "\npath: " + path + "\nrow: " + row + "\ncol: " + col);
+
 			results.add(new FileLinkMatch(match, path,
 					fileMatcher.start(), fileMatcher.end(),
 					row, col));
@@ -277,8 +289,10 @@ public class AwesomeLinkFilter implements Filter {
 	}
 
 	@NotNull
-	public List<URLLinkMatch> detectURLs(@NotNull final String line) {
+	public List<URLLinkMatch> detectURLs(@NotNull String line) {
 		final Matcher urlMatcher = this.urlMatcher.get();
+
+		line = line.replace(".cs:line ", ".cs      ");
 		urlMatcher.reset(line);
 		final List<URLLinkMatch> results = new LinkedList<>();
 		while (urlMatcher.find()) {
